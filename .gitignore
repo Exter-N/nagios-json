@@ -1,0 +1,3 @@
+*.o
+nagios-json
+nagios-json-db
