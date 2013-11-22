@@ -1,8 +1,10 @@
 #ifndef __NAGIOS_HOST_H
 #define __NAGIOS_HOST_H
 
-#include <string>
 #include <map>
+#include <string>
+
+#include "json.h"
 #include "nagios_service.h"
 
 class nagios_host
@@ -40,6 +42,8 @@ public:
 			svc.service_description() = service_description;
 		return svc;
 	}
+	
+	operator json() const;
 };
 
 #endif

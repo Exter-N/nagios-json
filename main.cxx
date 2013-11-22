@@ -1,15 +1,23 @@
 #include "globals.h"
+
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <map>
 #include <cstdlib>
-#include "nagios_host.h"
+
 #include "json.h"
+#include "nagios_host.h"
+#include "nagios_perfdata.h"
+#include "nagios_service.h"
+#include "string_map.h"
+#include "strutil.h"
 
 using namespace std;
 
 map<string, nagios_host> hosts;
+string_map configuration;
+string_map environment;
 
 inline nagios_host& host(const string& host_name)
 {
@@ -19,28 +27,13 @@ inline nagios_host& host(const string& host_name)
 	return hst;
 }
 
-void trim(string& s)
-{
-	string::size_type start = 0;
-	while (s.size() > start && (s[start] == ' ' || s[start] == '\t'))
-		++start;
-	string::size_type curend = s.size() - 1;
-	string::size_type end = curend;
-	while (end > start && (s[end] == ' ' || s[end] == '\t'))
-		--end;
-	if (start != 0 || end != curend)
-		s = s.substr(start, end + 1 - start);
-}
-
-inline int atoi(const string& s) { return atoi(s.c_str()); }
-
 void fill_status(nagios_service& svc, map<string, string>& data)
 {
-	svc.current_state() = atoi(data["current_state"]);
-	svc.state_type() = atoi(data["state_type"]);
+	svc.current_state() = stoi(data["current_state"]);
+	svc.state_type() = stoi(data["state_type"]);
 	svc.plugin_output() = data["plugin_output"];
-	svc.performance_data() = data["performance_data"];
-	svc.is_flapping() = atoi(data["is_flapping"]) != 0;
+	nagios_perfdata::parse_all(svc.performance_data(), data["performance_data"]);
+	svc.is_flapping() = stoi(data["is_flapping"]) != 0;
 }
 void fill_object(nagios_host& hst, map<string, string>& data)
 {
@@ -49,9 +42,8 @@ void fill_object(nagios_host& hst, map<string, string>& data)
 	hst.icon_image() = data["icon_image"];
 }
 
-void read_status(const char* from_file)
+void read_status(istream& file)
 {
-	ifstream file(from_file);
 	bool in_object = false, shall_store = false;
 	map<string, string> object_data;
 	string object_type;
@@ -77,7 +69,7 @@ void read_status(const char* from_file)
 			{
 				if (object_type == "hoststatus")
 				{
-					if (atoi(object_data["active_checks_enabled"]) != 0 && object_data["check_period"] != "" && object_data["check_period"] != "none")
+					if (stoi(object_data["active_checks_enabled"]) != 0 && object_data["check_period"] != "" && object_data["check_period"] != "none")
 						fill_status(host(object_data["host_name"]).service("Ping"), object_data);
 				}
 				else if (object_type == "servicestatus")
@@ -96,9 +88,8 @@ void read_status(const char* from_file)
 		}
 	}
 }
-void read_objects(const char* from_file)
+void read_objects(istream& file)
 {
-	ifstream file(from_file);
 	bool in_object = false, shall_store = false;
 	map<string, string> object_data;
 	string object_type;
@@ -138,58 +129,84 @@ void read_objects(const char* from_file)
 		}
 	}
 }
-void write_json(const char* to_file)
+
+json generate_json(const string& host_prefix, const string& alias_prefix, const string& display_prefix)
 {
-	ofstream file(to_file);
-	json root;
-	vector<json>& j_hosts = root.vector_value();
+	string::size_type host_prefix_len = host_prefix.size();
+	string::size_type alias_prefix_len = alias_prefix.size();
+	string::size_type display_prefix_len = display_prefix.size();
+	json j;
+	vector<json>& vec = j.vector_value();
 	map<string, nagios_host>::iterator end = hosts.end();
 	for (map<string, nagios_host>::iterator it = hosts.begin(); it != end; ++it)
 	{
 		nagios_host& host = it->second;
-		if (host.services().size())
-		{
-			json j_host;
-			map<string, json>& j_hmap = j_host.map_value();
-			j_hmap["host_name"].string_value() = host.host_name();
-			if (host.alias().size())
-				j_hmap["alias"].string_value() = host.alias();
-			if (host.display_name().size())
-				j_hmap["display_name"].string_value() = host.display_name();
-			if (host.icon_image().size())
-				j_hmap["icon_image"].string_value() = host.icon_image();
-			vector<json>& j_services = j_hmap["services"].vector_value();
-			map<string, nagios_service>::iterator end2 = host.services().end();
-			for (map<string, nagios_service>::iterator it2 = host.services().begin(); it2 != end2; ++it2)
-			{
-				nagios_service& service = it2->second;
-				json j_service;
-				map<string, json>& j_smap = j_service.map_value();
-				j_smap["service_description"].string_value() = service.service_description();
-				j_smap["current_state"].int_value() = service.current_state();
-				j_smap["state_type"].int_value() = service.state_type();
-				if (service.plugin_output().size())
-					j_smap["plugin_output"].string_value() = service.plugin_output();
-				if (service.performance_data().size())
-					j_smap["performance_data"].string_value() = service.performance_data();
-				j_smap["is_flapping"].int_value() = service.is_flapping() ? 1 : 0;
-				j_services.push_back(j_service);
-			}
-			j_hosts.push_back(j_host);
+		if (host.services().size() &&
+			(!host_prefix_len || starts_with(host.host_name(), host_prefix)) &&
+			(!alias_prefix_len || starts_with(host.alias(), alias_prefix)) &&
+			(!display_prefix_len || starts_with(host.display_name(), display_prefix))) {
+			if (host_prefix_len)
+				trim(host.host_name() = host.host_name().substr(host_prefix_len));
+			if (alias_prefix_len)
+				trim(host.alias() = host.alias().substr(alias_prefix_len));
+			if (display_prefix_len)
+				trim(host.display_name() = host.display_name().substr(display_prefix_len));
+			vec.emplace_back(host);
 		}
 	}
-	file << root;
+	return j;
+}
+void write_json(const char* to_file, const string& host_prefix, const string& alias_prefix, const string& display_prefix)
+{
+	ofstream file(to_file);
+	file << generate_json(host_prefix, alias_prefix, display_prefix);
 }
 
 int main(int argc, char** argv, char** envp)
 {
-	if (argc != 1 && argc != 4)
+	if (argc != 1 && argc != 2)
 	{
-		cerr << "Usage : " << argv[0] << " [status-file objects-file json-file]" << endl;
+		cerr << "Usage : " << argv[0] << " [config-file]" << endl;
 		return 1;
 	}
-	read_status((argc == 4) ? argv[1] : "/var/cache/nagios3/status.dat");
-	read_objects((argc == 4) ? argv[2] : "/var/cache/nagios3/objects.cache");
-	write_json((argc == 4) ? argv[3] : "/var/www/nagios.json");
-	return 0;
+	parse_string_map(environment, envp);
+	{
+		string cfgfile;
+		if (argc == 2)
+			cfgfile = argv[1];
+		else
+		{
+			string_map::iterator envcfg = environment.find("NAGIOS_JSON_CONFIG");
+			if (envcfg != environment.end())
+				cfgfile = envcfg->second;
+			else
+				cfgfile = "/etc/nagios-json.conf";
+		}
+		ifstream cfgstream(cfgfile);
+		parse_string_map(configuration, cfgstream);
+	}
+	{
+		ifstream ifs(configuration["status-file"]);
+		read_status(ifs);
+	}
+	{
+		ifstream ifs(configuration["objects-file"]);
+		read_objects(ifs);
+	}
+	string_map::iterator SERVER_PROTOCOL = environment.find("SERVER_PROTOCOL");
+	bool cgi = SERVER_PROTOCOL != environment.end();
+	if (cgi)
+	{
+		cout << "Status: 200 OK" << endl;
+		cout << "Content-Type: application/json; charset=utf-8" << endl;
+		cout << "Cache-Control: no-cache, no-store, must-revalidate" << endl;
+		cout << "Pragma: no-cache" << endl;
+		cout << "Expires: 0" << endl;
+		cout << endl;
+	}
+	cout << generate_json(
+		configuration["users." + environment["REMOTE_USER"] + ".host-prefix"],
+		configuration["users." + environment["REMOTE_USER"] + ".alias-prefix"],
+		configuration["users." + environment["REMOTE_USER"] + ".display-prefix"]) << endl;
+	return 1;
 }

@@ -1,6 +1,6 @@
 CC=g++
-CFLAGS=-Wall
-LDFLAGS=
+CFLAGS=-Wall -Wextra -Werror -std=c++11
+LDFLAGS=-Wall -Wextra -Werror
 EXEC=nagios-json
 SRC=$(wildcard *.cxx)
 OBJ=$(SRC:.cxx=.o)
@@ -12,15 +12,17 @@ all: $(EXEC) $(EXEC)-db
 
 $(EXEC): $(OBJ)
 	$(CC) $(LDFLAGS) -O3 -s $(LIB) -o $(EXEC) $^
-	sudo chgrp www-data $(EXEC)
-	sudo chmod g+s $(EXEC)
 
 $(EXEC)-db: $(OBJDB)
 	$(CC) $(LDFLAGS) $(LIB) -o $(EXEC)-db $^
-	sudo chgrp www-data $(EXEC)-db
-	sudo chmod g+s $(EXEC)-db
 
-main.o: nagios_host.h nagios_service.h json.h
+main.o: string_map.h json.h nagios_host.h nagios_perfdata.h nagios_range.h nagios_service.h strutil.h
+nagios_host.o: json.h nagios_host.h nagios_perfdata.h nagios_range.h nagios_service.h
+nagios_perfdata.o: json.h lexer.h nagios_perfdata.h nagios_range.h strutil.h
+nagios_range.o: json.h lexer.h nagios_range.h strutil.h
+nagios_service.o: json.h nagios_perfdata.h nagios_range.h nagios_service.h
+string_map.o: string_map.h strutil.h
+strutil.o: strutil.h
 
 %.o: %.cxx globals.h
 	$(CC) $(CFLAGS) -O3 $(INCLUDE) -o $@ -c $<
@@ -28,7 +30,11 @@ main.o: nagios_host.h nagios_service.h json.h
 %-db.o: %.cxx %.o
 	$(CC) $(CFLAGS) -g $(INCLUDE) -o $@ -c $<
 
-.PHONY: clean mrproper
+.PHONY: clean mrproper install
+
+install:
+	install -o root -g www-data -m 755 nagios-json /usr/bin/nagios-json
+	install -o root -g www-data -m 644 nagios-json.conf /etc/nagios-json.conf
 
 clean:
 	rm *.o

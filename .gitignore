@@ -1,3 +1,4 @@
 *.o
 nagios-json
 nagios-json-db
+nagios-json.tar.xz
