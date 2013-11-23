@@ -1,6 +1,6 @@
 CC=g++
-CFLAGS=-Wall -Wextra -Werror -std=c++11
-LDFLAGS=-Wall -Wextra -Werror
+CFLAGS=-Wall -Wextra -Werror -Wno-unused-parameter -std=c++11
+LDFLAGS=-Wall -Wextra -Werror -Wno-unused-parameter
 EXEC=nagios-json
 SRC=$(wildcard *.cxx)
 OBJ=$(SRC:.cxx=.o)
@@ -11,7 +11,7 @@ INCLUDE=
 all: $(EXEC) $(EXEC)-db
 
 $(EXEC): $(OBJ)
-	$(CC) $(LDFLAGS) -O3 -s $(LIB) -o $(EXEC) $^
+	$(CC) $(LDFLAGS) -O3 -march=native -flto -fwhole-program -s $(LIB) -o $(EXEC) $^
 
 $(EXEC)-db: $(OBJDB)
 	$(CC) $(LDFLAGS) $(LIB) -o $(EXEC)-db $^
@@ -25,7 +25,7 @@ string_map.o: string_map.h strutil.h
 strutil.o: strutil.h
 
 %.o: %.cxx globals.h
-	$(CC) $(CFLAGS) -O3 $(INCLUDE) -o $@ -c $<
+	$(CC) $(CFLAGS) -O3 -march=native -flto -fwhole-program $(INCLUDE) -o $@ -c $<
 
 %-db.o: %.cxx %.o
 	$(CC) $(CFLAGS) -g $(INCLUDE) -o $@ -c $<

@@ -289,6 +289,11 @@ void nagios_perfdata::parse_all(vector<nagios_perfdata>& dest, const string::con
 		nagios_range crit(nagios_range::empty_range);
 		double min(-INFINITY);
 		double max(INFINITY);
+		if (uom == "%")
+		{
+			min = 0;
+			max = 100;
+		}
 		if (lexer->is_separator())
 		{
 			++lexer;
